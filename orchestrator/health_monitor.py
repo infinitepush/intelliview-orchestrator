@@ -50,6 +50,7 @@ class DependencyStatus:
         return {
             "name": self.name,
             "healthy": self.healthy,
+            "status": "healthy" if self.healthy else "unhealthy",
             "latency_ms": round(self.latency_ms, 2),
             "last_check": self.last_check,
             "error": self.error,
