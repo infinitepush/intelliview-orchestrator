@@ -216,3 +216,72 @@ def test_session_manager_rejects_invalid_transition(db_session):
 
     # COMPLETED is terminal — no further transitions allowed
     assert sm.update_session_status("s2", sm.PROCESSING) is False
+
+
+import pytest
+import sqlalchemy as sa
+
+from alembic import command
+from alembic.config import Config
+
+
+@pytest.fixture
+def engine(postgres_container):
+    eng = create_engine(
+        postgres_container.get_connection_url(),
+        future=True,
+    )
+    try:
+        yield eng
+    finally:
+        eng.dispose()
+
+
+def test_migration_c7f1e2a9d4b6_idempotent_duplicate_constraints(engine):
+    """Regression test for Issue #16:
+
+    Ensure migration c7f1e2a9d4b6 succeeds without DuplicateObject when check
+    constraints already exist on interview_sessions.
+    """
+    alembic_cfg = Config("alembic.ini")
+
+    # Ensure clean starting state at previous revision
+    try:
+        command.downgrade(alembic_cfg, "ba859ad28cca")
+    except Exception:
+        pass
+
+    # Inject pre-existing constraints to trigger the original bug
+    with engine.begin() as conn:
+        inspector = sa.inspect(conn)
+        if "interview_sessions" in inspector.get_table_names():
+            existing = {
+                c["name"]
+                for c in inspector.get_check_constraints("interview_sessions")
+                if c.get("name")
+            }
+            if "ck_interview_status" not in existing:
+                conn.execute(
+                    sa.text(
+                        "ALTER TABLE interview_sessions ADD CONSTRAINT ck_interview_status "
+                        "CHECK (status IN ('pending', 'CREATED', 'COMPLETED', 'FAILED'))"
+                    )
+                )
+
+    # Upgrade must complete without raising psycopg2.errors.DuplicateObject
+    try:
+        command.upgrade(alembic_cfg, "c7f1e2a9d4b6")
+    except Exception as exc:
+        pytest.fail(f"Migration failed on pre-existing constraint with error: {exc}")
+
+    # Verify all 3 target constraints are active
+    with engine.connect() as conn:
+        inspector = sa.inspect(conn)
+        final_names = {
+            c["name"]
+            for c in inspector.get_check_constraints("interview_sessions")
+            if c.get("name")
+        }
+        assert "ck_interview_status" in final_names
+        assert "ck_risk_score_non_negative" in final_names
+        assert "ck_overall_score_non_negative" in final_names
