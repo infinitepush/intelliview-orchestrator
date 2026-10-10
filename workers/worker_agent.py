@@ -217,7 +217,7 @@ if __name__ == "__main__":
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
 
-    api_url = os.getenv("API_URL", "http://fastapi:8000")
+    api_url = os.getenv("API_URL", "http://localhost:8000")
     worker_id = os.getenv("WORKER_ID", f"worker-{os.getpid()}")
     raw_weight = os.getenv("WORKER_WEIGHT")
     weight = int(raw_weight) if raw_weight else None
